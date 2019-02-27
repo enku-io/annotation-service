@@ -1,0 +1,53 @@
+version: 2
+
+jobs:
+    build:
+        machine: true
+        environment:
+            - container: moses-service
+
+        working_directory: ~/mozi_snet_service
+        steps:
+            - checkout
+            - run:
+                  name: Pull Submodules
+                  command: |
+                    git submodule init
+                    git submodule update --remote
+            - run:
+                  name: Start the containers
+                  command: docker-compose up -d
+            - run:
+                  name: Run tests with coverage
+                  command: docker exec -it -e COVERALLS_REPO_TOKEN=$COVERALLS_REPO_TOKEN $container sh -c "coverage run --rcfile=./.coveragerc -m unittest && coverage report && coveralls"
+
+    deploy:
+        machine: true
+        steps:
+            - run:
+                  name: Deploy over SSH
+                  command: |
+                      ssh $SSH_USER@$SERVER bash << EOF
+                        cd ~/snet
+                        if [ ! -d "moses-service" ]; then
+                            # clone the repo if it doesn't exist
+                            git clone --recursive https://github.com/Habush/moses-service.git
+                        else
+                            git checkout -- .
+                            git pull
+                        fi
+                        export APP_PORT=8080
+                        export SERVICE_ADDR=46.4.115.181
+                        cd moses-service;
+                        docker-compose stop; # stop the containers if they are runnning
+                        docker-compose build;
+                        docker-compose up -d;
+                      EOF
+workflows:
+    version: 2
+    build_and_deploy:
+        jobs:
+            - build
+            - deploy:
+                  requires:
+                      - build
